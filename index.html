@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Таймер реанимации новорожденного в родильном зале</title>
+<meta name="author" content="Проскуряков И.В., Осокин И.П.">
 <meta name="description" content="Таймер и голосовой ассистент для реанимации и стабилизации состояния новорожденного в родильном зале по методическому письму МЗ РФ № 15-4/И/2-2570 от 04.03.2020">
 <meta name="theme-color" content="#0C1E1B">
 <meta name="mobile-web-app-capable" content="yes">
@@ -113,6 +114,41 @@
   ul.plain{margin:0;padding-left:18px;font-size:.85rem;color:var(--muted)}
   ul.plain li{margin-bottom:5px}
   .src{font-size:.72rem;color:var(--muted);margin-top:12px}
+  /* ---------- ЧСС ---------- */
+  .hrbar{margin-top:8px}
+  .hrbar .lbl{font-size:.72rem;color:var(--muted);margin-bottom:4px}
+  .hrrow{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}
+  .hrrow button{
+    border:1px solid var(--line);background:var(--surface);border-radius:11px;
+    padding:13px 4px;font-weight:700;font-size:1rem
+  }
+  .hrrow button[data-hr="0"],.hrrow button[data-hr="60"]{border-color:var(--alarm);color:#FFB3AC}
+  .hrrow button[data-hr="100"]{border-color:var(--go);color:var(--go)}
+  .hrrow button.sel{background:var(--paper);color:#0C1E1B;border-color:var(--paper)}
+  .hrnow{color:var(--paper);font-weight:650;white-space:nowrap}
+  .hrnow.low{color:#FF9A90}
+
+  /* ---------- модальное окно ---------- */
+  .modal{position:fixed;inset:0;background:rgba(5,14,12,.94);z-index:60;display:none;
+    align-items:center;justify-content:center;padding:14px}
+  .modal.show{display:flex}
+  .sheet{background:var(--surface);border:1px solid var(--line);border-radius:16px;
+    padding:16px;width:100%;max-width:430px;max-height:90vh;overflow:auto}
+  .sheet h3{margin:0 0 4px;font-size:1.05rem}
+  .sheet p.lead{margin:0 0 14px;font-size:.8rem;color:var(--muted)}
+  .q{border-top:1px solid var(--line);padding:11px 0}
+  .q .t{font-size:.98rem;font-weight:600;margin-bottom:8px}
+  .yn{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  .yn button{border:1px solid var(--line);background:var(--surface-2);border-radius:10px;padding:12px;font-weight:650}
+  .yn button.yes.sel{background:var(--go);border-color:var(--go);color:#06231A}
+  .yn button.no.sel{background:var(--alarm);border-color:var(--alarm);color:#fff}
+  #verdict{display:none;margin-top:12px;padding:12px;border-radius:11px;font-size:.9rem;line-height:1.35}
+  #verdict.calm{background:rgba(99,212,166,.14);border:1px solid var(--go)}
+  #verdict.act{background:rgba(226,87,76,.14);border:1px solid var(--alarm)}
+  #verdict b{display:block;margin-bottom:4px}
+  .sheet .close{width:100%;margin-top:12px;border:none;border-radius:11px;padding:14px;
+    background:var(--paper);color:#0C1E1B;font-weight:700}
+
   @media (prefers-reduced-motion: no-preference){
     #banner{animation:pop .18s ease-out}
     @keyframes pop{from{transform:translateY(-4px);opacity:0}to{transform:none;opacity:1}}
@@ -130,7 +166,7 @@
   </div>
   <div class="strip">
     <div id="nextHint">Нажмите «Рождение»</div>
-    <div class="sp" id="spo2">SpO₂ —</div>
+    <div class="sp"><span class="hrnow" id="hrNow">ЧСС —</span> · <span id="spo2">SpO₂ —</span></div>
   </div>
   <div id="banner" role="status" aria-live="assertive"></div>
   <div class="tabs">
@@ -144,7 +180,17 @@
 <section class="pane sel" id="p1">
   <button class="big" id="startBtn">Рождение</button>
 
-  <div class="pad">
+  <div class="hrbar">
+    <div class="lbl">Оценить ЧСС</div>
+    <div class="hrrow">
+      <button data-hr="0">нет</button>
+      <button data-hr="60">&lt;60</button>
+      <button data-hr="80">60–100</button>
+      <button data-hr="100">&gt;100</button>
+    </div>
+  </div>
+
+  <div class="pad" style="margin-top:8px">
     <button id="ivlBtn">Начать ИВЛ<small>старт отсчета реанимации</small></button>
     <button id="cprBtn">Массаж 3:1<small>90 компрессий + 30 вдохов</small></button>
     <button id="adrIv" class="hot">Адреналин в/в<small>0,1–0,3 мл/кг (1:10 000)</small></button>
@@ -170,6 +216,7 @@
   <div class="footrow">
     <button class="on" id="voiceBtn" aria-pressed="true">Голос</button>
     <button class="on" id="toneBtn" aria-pressed="true">Сигналы</button>
+    <button id="qBtn">Три вопроса</button>
     <button id="testBtn">Проверить</button>
     <button id="resetBtn">Сброс</button>
   </div>
@@ -193,6 +240,22 @@
 
 <!-- СПРАВКА -->
 <section class="pane" id="p3">
+  <div class="card">
+    <h2>Три вопроса сразу после рождения</h2>
+    <table>
+      <tr><td>Все «да»</td><td>Накрыть сухой теплой пеленкой и выложить на живот матери; отсроченное пережатие и пересечение пуповины 30–120 с при пульсации &gt;100/мин</td></tr>
+      <tr><td>Хотя бы одно «нет»</td><td>Перенести на подогреваемый столик: на спину головой к врачу, определить признаки живорождения, обсушить и убрать мокрую пеленку, температурный датчик и пульсоксиметр/ЭКГ, санация ВДП по необходимости, тактильная стимуляция</td></tr>
+    </table>
+  </div>
+  <div class="card">
+    <h2>Решения по ЧСС</h2>
+    <table>
+      <tr><td>&lt;60</td><td>На фоне адекватной ИВЛ с FiO₂ 1,0 — непрямой массаж 3:1 и катетеризация вены пуповины; если не возрастает на фоне массажа — адреналин, далее каждые 3–5 мин, при кровопотере/гиповолемии физраствор 10 мл/кг</td></tr>
+      <tr><td>60–100</td><td>Проверить прилегание маски и положение головы, увеличить давление на вдохе; при стойкой брадикардии 60–100/мин в течение 1 мин без динамики — интубация. На фоне массажа при ЧСС &gt;60 массаж прекратить</td></tr>
+      <tr><td>&gt;100</td><td>Продолжить ИВЛ до восстановления регулярного дыхания; при регулярном дыхании — стабилизация состояния</td></tr>
+      <tr><td>Критерий</td><td>Основной критерий эффективности — повышение ЧСС в динамике до &gt;100/мин; важны не только абсолютные значения, но и тенденция</td></tr>
+    </table>
+  </div>
   <div class="card">
     <h2>Контрольные точки от начала ИВЛ</h2>
     <table>
@@ -229,15 +292,33 @@
       <li>Физраствор 10 мл/кг: доношенным струйно медленно, недоношенным не быстрее чем за 5 мин.</li>
       <li>Основной критерий эффективности — повышение ЧСС в динамике до &gt;100/мин.</li>
     </ul>
+    <p class="src"><b style="color:var(--paper)">Разработчики:</b> Проскуряков Иван Владиславович, Осокин Иван Павлович.</p>
     <p class="src">Методическое письмо Минздрава России № 15-4/И/2-2570 от 04.03.2020 «Реанимация и стабилизация состояния новорожденных детей в родильном зале». Инструмент не заменяет текст письма, клиническую оценку и локальные протоколы.</p>
   </div>
 </section>
+
+<div class="modal" id="qModal" role="dialog" aria-modal="true" aria-labelledby="qTitle">
+  <div class="sheet">
+    <h3 id="qTitle">Оценка сразу после рождения</h3>
+    <p class="lead">Оценить необходимость перемещения ребенка на реанимационный столик</p>
+
+    <div class="q"><div class="t">Ребенок доношенный?</div>
+      <div class="yn" data-q="0"><button class="yes">Да</button><button class="no">Нет</button></div></div>
+    <div class="q"><div class="t">Новорожденный дышит и кричит?</div>
+      <div class="yn" data-q="1"><button class="yes">Да</button><button class="no">Нет</button></div></div>
+    <div class="q"><div class="t">У ребенка хороший мышечный тонус?</div>
+      <div class="yn" data-q="2"><button class="yes">Да</button><button class="no">Нет</button></div></div>
+
+    <div id="verdict"></div>
+    <button class="close" id="qClose">Закрыть</button>
+  </div>
+</div>
 
 <script>
 (function(){
   "use strict";
   var S={birth:null,ivl:null,cpr:null,adr:null,micro:null,microLimit:0,microName:"",microBtn:null,
-         fired:{},log:[],sound:true,voice:true,cprBeats:0,lastMin:-1};
+         fired:{},log:[],sound:true,voice:true,cprBeats:0,lastMin:-1,hr:null,hrAt:null,ans:[null,null,null]};
   function $(id){return document.getElementById(id);}
   function fmt(ms){ if(ms==null) return "00:00";
     var s=Math.floor(ms/1000),m=Math.floor(s/60);
@@ -412,6 +493,14 @@
     var g=spo2Now();
     $("spo2").textContent = g?("SpO₂ "+g):"SpO₂ —";
 
+    var hn=$("hrNow");
+    if(S.hr==null){ hn.textContent="ЧСС —"; hn.classList.remove("low"); }
+    else{
+      var ago=Math.floor((Date.now()-S.hrAt)/1000);
+      hn.textContent="ЧСС "+S.hr+" ("+(ago<60?ago+" с":Math.floor(ago/60)+" мин")+")";
+      hn.classList.toggle("low", S.hr==="нет" || S.hr==="<60");
+    }
+
     if(S.birth!=null){
       var mm=Math.floor((Date.now()-S.birth)/60000);
       if(mm>=1&&mm<=10&&mm!==S.lastMin){
@@ -451,7 +540,8 @@
       S.birth=Date.now(); S.lastMin=-1;
       this.textContent="Отсчет идет";
       this.style.background="var(--surface-2)"; this.style.color="var(--paper)";
-      logIt("Рождение — Апгар-таймер запущен","Отсчёт пошёл. Начальные мероприятия, не более шестидесяти секунд");
+      logIt("Рождение — Апгар-таймер запущен","Отсчёт пошёл. Ребёнок доношенный? Дышит и кричит? Тонус удовлетворительный?");
+      openQ();
     }
   };
   $("ivlBtn").onclick=function(){
@@ -480,6 +570,94 @@
   $("salBtn").onclick=function(){logIt("Физраствор 10 мл/кг в/в","Физраствор десять миллилитров на килограмм");};
   $("cpapBtn").onclick=function(){logIt("СРАР 6–8 см вод.ст.","СРАР начат");};
   $("umbBtn").onclick=function(){logIt("Катетеризация вены пуповины","Катетеризация вены пуповины");};
+
+  /* ---------- оценка ЧСС ---------- */
+  var HRBTN=document.querySelectorAll(".hrrow button");
+  function hrAdvice(v){
+    var ivl=S.ivl!=null, cpr=S.cpr!=null, adrAgo=S.adr==null?null:(Date.now()-S.adr)/1000;
+    if(v==="нет"||v==="<60"){
+      if(cpr){
+        if(adrAgo!=null&&adrAgo>=55)
+          return ["ЧСС <60/мин через 1 мин после адреналина — продолжить массаж на фоне ИВЛ с FiO₂ 1,0, повторить адреналин (каждые 3–5 мин) или ввести физраствор 10 мл/кг при признаках кровопотери",
+                  "ЧСС ниже шестидесяти. Повторить адреналин или ввести физраствор",true];
+        return ["ЧСС <60/мин и не возрастает — продолжить непрямой массаж на фоне ИВЛ, убедиться в правильности работы оборудования и начать лекарственную терапию",
+                "ЧСС ниже шестидесяти. Начать лекарственную терапию, адреналин",true];
+      }
+      if(ivl) return ["ЧСС <60/мин на фоне ИВЛ — непрямой массаж сердца с FiO₂ 1,0, одновременно катетеризация вены пуповины; при гестации >35 нед отключить обогрев",
+                      "ЧСС ниже шестидесяти. Начать непрямой массаж, кислород сто процентов",true];
+      return ["ЧСС <60/мин — показание к ИВЛ; после интубации при сохранении ЧСС <60 начать непрямой массаж",
+              "ЧСС ниже шестидесяти. Начать ИВЛ",true];
+    }
+    if(v==="60–100"){
+      if(cpr) return ["ЧСС >60/мин — прекратить непрямой массаж сердца и продолжить ИВЛ",
+                      "ЧСС выше шестидесяти. Прекратить массаж, продолжить ИВЛ",false];
+      if(ivl) return ["ЧСС 60–100/мин и не возрастает — проверить прилегание маски и положение головы, увеличить давление на вдохе; при стойкой брадикардии 60–100/мин в течение 1 мин без динамики выполнить интубацию трахеи",
+                      "ЧСС шестьдесят — сто. Проверить маску и положение головы, увеличить давление",false];
+      return ["ЧСС <100/мин — показание к ИВЛ","ЧСС меньше ста. Начать ИВЛ",false];
+    }
+    if(cpr) return ["ЧСС >100/мин — прекратить непрямой массаж сердца, продолжить ИВЛ",
+                    "ЧСС выше ста. Прекратить массаж, продолжить ИВЛ",false];
+    if(ivl) return ["ЧСС >100/мин — продолжить ИВЛ до восстановления регулярного дыхания",
+                    "ЧСС выше ста. Продолжить ИВЛ до регулярного дыхания",false];
+    return ["ЧСС >100/мин — оценить дыхание: при регулярном стабилизация состояния, при дыхательных нарушениях СРАР",
+            "ЧСС выше ста. Оценить дыхание",false];
+  }
+  for(var hi=0;hi<HRBTN.length;hi++){
+    HRBTN[hi].onclick=function(){
+      ac();
+      var v=this.textContent.trim();
+      S.hr=v; S.hrAt=Date.now();
+      for(var k=0;k<HRBTN.length;k++) HRBTN[k].classList.remove("sel");
+      this.classList.add("sel");
+      var a=hrAdvice(v);
+      logIt("Оценка ЧСС: "+v+"/мин",false);
+      banner(a[0],a[2],a[1]);
+    };
+  }
+
+  /* ---------- три вопроса ---------- */
+  function openQ(){
+    S.ans=[null,null,null];
+    var yn=document.querySelectorAll(".yn button");
+    for(var i=0;i<yn.length;i++) yn[i].classList.remove("sel");
+    $("verdict").style.display="none";
+    $("qModal").classList.add("show");
+  }
+  function verdict(){
+    if(S.ans.indexOf(null)!==-1) return;
+    var all=S.ans[0]&&S.ans[1]&&S.ans[2];
+    var v=$("verdict"); v.style.display="block"; v.className=all?"calm":"act";
+    if(all){
+      v.innerHTML="<b>Все три «да» — на живот матери</b>Накрыть сухой теплой пеленкой и выложить на живот матери. Отсроченное пережатие и пересечение пуповины 30–120 с при пульсации &gt;100/мин и отсутствии необходимости в немедленной помощи матери или ребенку.";
+      logIt("Три вопроса: все «да» — контакт кожа-к-коже, отсроченное пережатие пуповины",
+            "Все три да. На живот матери, отсроченное пережатие пуповины");
+    } else {
+      v.innerHTML="<b>Есть «нет» — на реанимационный столик</b>Положение на спине головой к врачу, определить признаки живорождения, обсушить и убрать мокрую пеленку, подключить температурный датчик и пульсоксиметр/ЭКГ, санация ВДП по необходимости, тактильная стимуляция. Начальные мероприятия — не более 60 с.";
+      logIt("Три вопроса: есть «нет» — перенос на подогреваемый столик, начало мониторинга",
+            "Есть нет. На реанимационный столик, начать мониторинг. Начальные мероприятия, шестьдесят секунд");
+      startMicro("Начальные мероприятия",60,$("initBtn"));
+    }
+  }
+  (function(){
+    var groups=document.querySelectorAll(".yn");
+    for(var i=0;i<groups.length;i++){
+      (function(g){
+        var idx=parseInt(g.getAttribute("data-q"),10);
+        var bs=g.querySelectorAll("button");
+        for(var j=0;j<bs.length;j++){
+          (function(b,isYes){
+            b.onclick=function(){
+              ac();
+              bs[0].classList.remove("sel"); bs[1].classList.remove("sel");
+              b.classList.add("sel"); S.ans[idx]=isYes; verdict();
+            };
+          })(bs[j], j===0);
+        }
+      })(groups[i]);
+    }
+    $("qClose").onclick=function(){ $("qModal").classList.remove("show"); };
+    $("qBtn").onclick=function(){ ac(); openQ(); };
+  })();
 
   function askApgar(when){
     var v=prompt("Оценка по шкале Апгар, "+when+" (0–10):","");
@@ -518,6 +696,10 @@
     stopMet(); stopMicro();
     if("speechSynthesis" in window) window.speechSynthesis.cancel();
     S.birth=S.ivl=S.cpr=S.adr=null; S.fired={}; S.cprBeats=0; beat=0; S.lastMin=-1;
+    S.hr=null; S.hrAt=null;
+    var hb=document.querySelectorAll(".hrrow button");
+    for(var q=0;q<hb.length;q++) hb[q].classList.remove("sel");
+    $("qModal").classList.remove("show");
     var sb=$("startBtn"); sb.textContent="Рождение"; sb.style.background=""; sb.style.color="";
     var ib=$("ivlBtn"); ib.classList.remove("on"); ib.innerHTML="Начать ИВЛ<small>старт отсчета реанимации</small>";
     var cb=$("cprBtn"); cb.classList.remove("on"); cb.innerHTML="Массаж 3:1<small>90 компрессий + 30 вдохов</small>";
