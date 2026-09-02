@@ -1,0 +1,17 @@
+{
+  "name": "Реанимация новорожденного — таймер родильного зала",
+  "short_name": "Реанимация",
+  "description": "Таймеры, метроном 3:1 и голосовые объявления по методическому письму МЗ РФ № 15-4/И/2-2570 от 04.03.2020",
+  "lang": "ru",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0C1E1B",
+  "theme_color": "#0C1E1B",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
