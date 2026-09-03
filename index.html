@@ -149,6 +149,29 @@
   .sheet .close{width:100%;margin-top:12px;border:none;border-radius:11px;padding:14px;
     background:var(--paper);color:#0C1E1B;font-weight:700}
 
+  /* печать вкладыш-карты */
+  #printArea{display:none}
+  @media print{
+    body>*{display:none !important}
+    #printArea{display:block !important;color:#000;background:#fff;font-size:11pt}
+    #printArea h1{font-size:13pt;margin:0 0 2mm}
+    #printArea table{width:100%;border-collapse:collapse;margin-bottom:4mm}
+    #printArea td,#printArea th{border:1px solid #000;padding:1.5mm 2mm;font-size:10pt;text-align:left}
+    #printArea .fill{border-bottom:1px solid #000;display:inline-block;min-width:60mm}
+    @page{margin:12mm}
+  }
+  .field{margin-bottom:10px}
+  .field label{display:block;font-size:.78rem;color:var(--muted);margin-bottom:4px}
+  .field input,.field select,.field textarea{
+    width:100%;background:var(--surface-2);border:1px solid var(--line);border-radius:9px;
+    color:var(--paper);padding:10px;font-family:inherit;font-size:.95rem
+  }
+  .sum{list-style:none;margin:0 0 12px;padding:0;font-size:.9rem}
+  .sum li{display:flex;justify-content:space-between;gap:10px;padding:6px 0;border-bottom:1px solid var(--line)}
+  .sum li b{font-weight:650;white-space:nowrap}
+  .sheet .row2{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px}
+  .sheet .row2 button{border:1px solid var(--line);background:var(--surface-2);border-radius:11px;padding:13px;font-weight:600}
+
   @media (prefers-reduced-motion: no-preference){
     #banner{animation:pop .18s ease-out}
     @keyframes pop{from{transform:translateY(-4px);opacity:0}to{transform:none;opacity:1}}
@@ -216,9 +239,12 @@
   <div class="footrow">
     <button class="on" id="voiceBtn" aria-pressed="true">Голос</button>
     <button class="on" id="toneBtn" aria-pressed="true">Сигналы</button>
+    <button id="critBtn">Только критичное</button>
     <button id="qBtn">Три вопроса</button>
+    <button id="undoBtn">Отменить</button>
+    <button id="sumBtn">Итоги и карта</button>
     <button id="testBtn">Проверить</button>
-    <button id="resetBtn">Сброс</button>
+    <button id="resetBtn">Сброс (удержать)</button>
   </div>
 </section>
 
@@ -314,11 +340,35 @@
   </div>
 </div>
 
+<div class="modal" id="sumModal" role="dialog" aria-modal="true">
+  <div class="sheet">
+    <h3>Итоги и вкладыш-карта</h3>
+    <p class="lead">Сводка таймингов и печатная форма к истории развития новорожденного</p>
+    <ul class="sum" id="sumList"></ul>
+    <div class="field"><label>ФИО родильницы</label><input id="fFio" type="text" placeholder="Фамилия И.О."></div>
+    <div class="field"><label>Характер амниотических вод</label>
+      <select id="fWaters">
+        <option value="">не указано</option>
+        <option>светлые</option><option>мекониальные</option><option>мутные</option>
+        <option>зловонные</option><option>с примесью крови</option>
+      </select></div>
+    <div class="field"><label>Исход</label><textarea id="fOutcome" rows="3" placeholder="Состояние на момент завершения, возраст при переводе, способ транспортировки и респираторной поддержки, предварительный диагноз"></textarea></div>
+    <div class="row2">
+      <button id="printBtn">Печать карты</button>
+      <button id="sumClose">Закрыть</button>
+    </div>
+  </div>
+</div>
+
+<div id="printArea"></div>
+
 <script>
 (function(){
   "use strict";
   var S={birth:null,ivl:null,cpr:null,adr:null,micro:null,microLimit:0,microName:"",microBtn:null,
-         fired:{},log:[],sound:true,voice:true,cprBeats:0,lastMin:-1,hr:null,hrAt:null,ans:[null,null,null]};
+         fired:{},log:[],sound:true,voice:true,cprBeats:0,lastMin:-1,hr:null,hrAt:null,ans:[null,null,null],
+         critOnly:false,meta:{fio:"",waters:"",outcome:""}};
+  var UNDO=[];
   function $(id){return document.getElementById(id);}
   function fmt(ms){ if(ms==null) return "00:00";
     var s=Math.floor(ms/1000),m=Math.floor(s/60);
@@ -366,8 +416,8 @@
 
   /* баннер */
   var bt=null;
-  function banner(text,crit,spoken){
-    say(spoken||text,true);
+  function banner(text,crit,spoken,imp){
+    if(!S.critOnly || crit || imp!==false) say(spoken||text,true);
     var b=$("banner"); b.className=crit?"crit":""; b.innerHTML="";
     var s=document.createElement("span"); s.textContent=text; b.appendChild(s);
     var x=document.createElement("button"); x.textContent="Ок";
@@ -376,10 +426,47 @@
     if(bt) clearTimeout(bt); bt=setTimeout(function(){b.style.display="none";},30000);
   }
 
+  /* ---------- сохранение сессии ---------- */
+  var KEY="rean_session_v1";
+  function snapshot(){
+    return JSON.stringify({birth:S.birth,ivl:S.ivl,cpr:S.cpr,adr:S.adr,hr:S.hr,hrAt:S.hrAt,
+      log:S.log,fired:S.fired,lastMin:S.lastMin,ans:S.ans,meta:S.meta});
+  }
+  function save(){
+    try{ localStorage.setItem(KEY, JSON.stringify({at:Date.now(),data:snapshot()})); }catch(e){}
+  }
+  function applySnap(str){
+    var d; try{ d=JSON.parse(str); }catch(e){ return; }
+    S.birth=d.birth; S.ivl=d.ivl; S.cpr=d.cpr; S.adr=d.adr;
+    S.hr=d.hr; S.hrAt=d.hrAt; S.log=d.log||[]; S.fired=d.fired||{};
+    S.lastMin=(d.lastMin==null?-1:d.lastMin); S.ans=d.ans||[null,null,null];
+    S.meta=d.meta||{fio:"",waters:"",outcome:""};
+    renderLog(); syncUI(); save();
+  }
+  function pushUndo(){
+    UNDO.push(snapshot()); if(UNDO.length>30) UNDO.shift();
+    $("undoBtn").disabled=false;
+  }
+  function syncUI(){
+    var sb=$("startBtn");
+    if(S.birth!=null){ sb.textContent="Отсчет идет"; sb.style.background="var(--surface-2)"; sb.style.color="var(--paper)"; }
+    else { sb.textContent="Рождение"; sb.style.background=""; sb.style.color=""; }
+    var ib=$("ivlBtn");
+    if(S.ivl!=null){ ib.classList.add("on"); ib.innerHTML="ИВЛ идет<small>нажать — перезапуск отсчета</small>"; }
+    else { ib.classList.remove("on"); ib.innerHTML="Начать ИВЛ<small>старт отсчета реанимации</small>"; }
+    var cb=$("cprBtn");
+    if(S.cpr!=null){ cb.classList.add("on"); cb.innerHTML="Остановить массаж<small>метроном 3:1 идет</small>"; }
+    else { cb.classList.remove("on"); cb.innerHTML="Массаж 3:1<small>90 компрессий + 30 вдохов</small>"; }
+    var hb=document.querySelectorAll(".hrrow button");
+    for(var i=0;i<hb.length;i++)
+      hb[i].classList.toggle("sel", S.hr!=null && hb[i].textContent.trim()===S.hr);
+  }
+
   /* журнал */
   function logIt(text,spoken){
-    S.log.push({t:S.birth?fmt(Date.now()-S.birth):"--:--",text:text});
-    renderLog(); if(spoken!==false) say(spoken||text,false);
+    S.log.push({t:S.birth?fmt(Date.now()-S.birth):"--:--",ts:Date.now(),text:text});
+    renderLog(); save();
+    if(spoken!==false && !S.critOnly) say(spoken||text,false);
   }
   function renderLog(){
     var ul=$("log"); ul.innerHTML="";
@@ -396,15 +483,15 @@
     "Сурфактант","Продленный вдох","Тактильная стимуляция","Прекращение реанимации","Перевод в ПИТ/ОРИТН","Мертворождение"];
   (function(){ var box=$("events");
     EXTRA.forEach(function(n){ var b=document.createElement("button"); b.textContent=n;
-      b.onclick=function(){logIt(n);}; box.appendChild(b); }); })();
+      b.onclick=function(){pushUndo();logIt(n);}; box.appendChild(b); }); })();
 
   /* контрольные точки */
   var MARKS={
     ivl:[
-      {s:15,txt:"ИВЛ 15 с — нет тенденции к повышению ЧСС: маска, положение головы, санация ВДП, челюсть, увеличить PIP",say:"Пятнадцать секунд ИВЛ. Оценить динамику ЧСС",short:"15 с ИВЛ — оценка ЧСС"},
+      {imp:false,s:15,txt:"ИВЛ 15 с — нет тенденции к повышению ЧСС: маска, положение головы, санация ВДП, челюсть, увеличить PIP",say:"Пятнадцать секунд ИВЛ. Оценить динамику ЧСС",short:"15 с ИВЛ — оценка ЧСС"},
       {s:30,txt:"ИВЛ 30 с — ЧСС <60/мин без тенденции к повышению: интубация трахеи",say:"Тридцать секунд ИВЛ. Если ЧСС меньше шестидесяти без динамики — интубация",short:"30 с ИВЛ — интубация при ЧСС<60"},
       {s:60,txt:"ИВЛ 1 мин — стойкая брадикардия 60–100/мин без динамики: интубация трахеи",say:"Одна минута ИВЛ. Стойкая брадикардия — интубация",short:"1 мин ИВЛ — интубация при 60–100"},
-      {s:180,txt:"ИВЛ маской 3 мин — установить желудочный зонд",say:"Три минуты ИВЛ маской. Желудочный зонд",short:"3 мин — желудочный зонд"},
+      {imp:false,s:180,txt:"ИВЛ маской 3 мин — установить желудочный зонд",say:"Три минуты ИВЛ маской. Желудочный зонд",short:"3 мин — желудочный зонд"},
       {s:600,txt:"10 мин от начала ИВЛ — ребенку без признаков живорождения при отсутствии сердцебиения реанимационные мероприятия следует прекратить",say:"Внимание. Десять минут от начала ИВЛ. При отсутствии сердцебиения реанимацию следует прекратить",short:"10 мин ИВЛ — решение о прекращении",crit:true}
     ],
     adr:[
@@ -412,8 +499,8 @@
       {s:180,txt:"3 мин после адреналина — при сохраняющейся ЧСС <60/мин можно повторить введение (каждые 3–5 мин)",say:"Три минуты после адреналина. Можно повторить",short:"3 мин — повтор адреналина"}
     ],
     life:[
-      {s:60,txt:"1 мин жизни — оценка по шкале Апгар",say:"Одна минута жизни. Оценка по Апгар",short:"1 мин — Апгар"},
-      {s:300,txt:"5 мин жизни — вторая оценка по шкале Апгар",say:"Пять минут жизни. Вторая оценка по Апгар",short:"5 мин — Апгар"},
+      {imp:false,s:60,txt:"1 мин жизни — оценка по шкале Апгар",say:"Одна минута жизни. Оценка по Апгар",short:"1 мин — Апгар"},
+      {imp:false,s:300,txt:"5 мин жизни — вторая оценка по шкале Апгар",say:"Пять минут жизни. Вторая оценка по Апгар",short:"5 мин — Апгар"},
       {s:600,txt:"10 мин жизни — третья оценка по шкале Апгар при продолжении реанимации более 5 мин",say:"Десять минут жизни. Третья оценка по Апгар",short:"10 мин — Апгар"}
     ]
   };
@@ -424,7 +511,7 @@
       var id=key+"_"+arr[i].s+"_"+start;
       if(sec>=arr[i].s && !S.fired[id]){
         S.fired[id]=true;
-        banner(arr[i].txt,!!arr[i].crit,arr[i].say);
+        banner(arr[i].txt,!!arr[i].crit,arr[i].say,arr[i].imp);
         logIt("Контрольная точка: "+arr[i].short,false);
       }
     }
@@ -505,7 +592,7 @@
       var mm=Math.floor((Date.now()-S.birth)/60000);
       if(mm>=1&&mm<=10&&mm!==S.lastMin){
         S.lastMin=mm;
-        say(mm+(mm===1?" минута жизни":(mm<5?" минуты жизни":" минут жизни"))+
+        if(!S.critOnly) say(mm+(mm===1?" минута жизни":(mm<5?" минуты жизни":" минут жизни"))+
             (g?". Цель сатурации "+g.replace("–"," — ").replace("%","процентов"):""),false);
       }
     }
@@ -537,6 +624,7 @@
   $("startBtn").onclick=function(){
     ac();
     if(S.birth==null){
+      pushUndo();
       S.birth=Date.now(); S.lastMin=-1;
       this.textContent="Отсчет идет";
       this.style.background="var(--surface-2)"; this.style.color="var(--paper)";
@@ -545,31 +633,33 @@
     }
   };
   $("ivlBtn").onclick=function(){
-    ac();
+    ac(); pushUndo();
     if(S.ivl==null){ S.ivl=Date.now(); this.classList.add("on");
       this.innerHTML="ИВЛ идет<small>нажать — перезапуск отсчета</small>";
       logIt("Начало ИВЛ","Начало ИВЛ. Отсчёт реанимационных мероприятий пошёл");
     } else { S.ivl=Date.now(); logIt("Отсчет ИВЛ перезапущен","Отсчёт ИВЛ перезапущен"); }
+    save();
   };
   $("cprBtn").onclick=function(){
-    ac();
+    ac(); pushUndo();
     if(S.cpr==null){ S.cpr=Date.now(); startMet(); this.classList.add("on");
       this.innerHTML="Остановить массаж<small>метроном 3:1 идет</small>";
       logIt("Начало непрямого массажа сердца, FiO₂ 1,0","Непрямой массаж сердца, три к одному. Кислород сто процентов");
     } else { S.cpr=null; stopMet(); this.classList.remove("on");
       this.innerHTML="Массаж 3:1<small>90 компрессий + 30 вдохов</small>";
       logIt("Массаж сердца прекращен","Массаж прекращён, продолжаем ИВЛ"); }
+    save();
   };
   function adr(route){
-    ac(); S.adr=Date.now();
+    ac(); pushUndo(); S.adr=Date.now();
     logIt("Адреналин 1:10 000 — "+route,"Адреналин введён. Оценка через минуту, повтор через три — пять минут");
   }
   $("adrIv").onclick=function(){adr("внутривенно 0,1–0,3 мл/кг");};
   $("adrEt").onclick=function(){adr("эндотрахеально 0,5–1 мл/кг");};
-  $("intubBtn").onclick=function(){logIt("Интубация трахеи","Интубация трахеи");};
-  $("salBtn").onclick=function(){logIt("Физраствор 10 мл/кг в/в","Физраствор десять миллилитров на килограмм");};
-  $("cpapBtn").onclick=function(){logIt("СРАР 6–8 см вод.ст.","СРАР начат");};
-  $("umbBtn").onclick=function(){logIt("Катетеризация вены пуповины","Катетеризация вены пуповины");};
+  $("intubBtn").onclick=function(){pushUndo();logIt("Интубация трахеи","Интубация трахеи");};
+  $("salBtn").onclick=function(){pushUndo();logIt("Физраствор 10 мл/кг в/в","Физраствор десять миллилитров на килограмм");};
+  $("cpapBtn").onclick=function(){pushUndo();logIt("СРАР 6–8 см вод.ст.","СРАР начат");};
+  $("umbBtn").onclick=function(){pushUndo();logIt("Катетеризация вены пуповины","Катетеризация вены пуповины");};
 
   /* ---------- оценка ЧСС ---------- */
   var HRBTN=document.querySelectorAll(".hrrow button");
@@ -604,13 +694,13 @@
   }
   for(var hi=0;hi<HRBTN.length;hi++){
     HRBTN[hi].onclick=function(){
-      ac();
+      ac(); pushUndo();
       var v=this.textContent.trim();
       S.hr=v; S.hrAt=Date.now();
       for(var k=0;k<HRBTN.length;k++) HRBTN[k].classList.remove("sel");
       this.classList.add("sel");
       var a=hrAdvice(v);
-      logIt("Оценка ЧСС: "+v+"/мин",false);
+      logIt("Оценка ЧСС: "+v+"/мин",false); save();
       banner(a[0],a[2],a[1]);
     };
   }
@@ -647,7 +737,7 @@
         for(var j=0;j<bs.length;j++){
           (function(b,isYes){
             b.onclick=function(){
-              ac();
+              ac(); pushUndo();
               bs[0].classList.remove("sel"); bs[1].classList.remove("sel");
               b.classList.add("sel"); S.ans[idx]=isYes; verdict();
             };
@@ -661,7 +751,7 @@
 
   function askApgar(when){
     var v=prompt("Оценка по шкале Апгар, "+when+" (0–10):","");
-    if(v===null) return; v=v.replace(",",".").trim();
+    if(v===null) return; v=v.replace(",",".").trim(); pushUndo();
     logIt("Апгар "+when+": "+(v===""?"—":v)+" балл(ов)","Апгар "+when+", "+(v===""?"не указано":v));
   }
   $("apgar1").onclick=function(){askApgar("1 мин");};
@@ -691,20 +781,125 @@
     say("Проверка звука. Таймер готов",true);
     var b=this; b.textContent="Слышно?"; setTimeout(function(){b.textContent="Проверить";},2500);
   };
-  $("resetBtn").onclick=function(){
-    if(S.birth!=null&&!confirm("Сбросить все таймеры? Журнал сохранится.")) return;
-    stopMet(); stopMicro();
-    if("speechSynthesis" in window) window.speechSynthesis.cancel();
-    S.birth=S.ivl=S.cpr=S.adr=null; S.fired={}; S.cprBeats=0; beat=0; S.lastMin=-1;
-    S.hr=null; S.hrAt=null;
-    var hb=document.querySelectorAll(".hrrow button");
-    for(var q=0;q<hb.length;q++) hb[q].classList.remove("sel");
-    $("qModal").classList.remove("show");
-    var sb=$("startBtn"); sb.textContent="Рождение"; sb.style.background=""; sb.style.color="";
-    var ib=$("ivlBtn"); ib.classList.remove("on"); ib.innerHTML="Начать ИВЛ<small>старт отсчета реанимации</small>";
-    var cb=$("cprBtn"); cb.classList.remove("on"); cb.innerHTML="Массаж 3:1<small>90 компрессий + 30 вдохов</small>";
-    $("banner").style.display="none";
+  /* отмена последнего действия */
+  $("undoBtn").disabled=true;
+  $("undoBtn").onclick=function(){
+    if(!UNDO.length) return;
+    var was=S.cpr!=null;
+    applySnap(UNDO.pop());
+    if(S.cpr==null&&was) stopMet();
+    if(S.cpr!=null&&!was) startMet();
+    if(!UNDO.length) this.disabled=true;
+    say("Отменено",true);
   };
+
+  /* режим «только критичное» */
+  $("critBtn").onclick=function(){
+    S.critOnly=!S.critOnly; this.classList.toggle("on",S.critOnly);
+    if("speechSynthesis" in window) window.speechSynthesis.cancel();
+    say(S.critOnly?"Только критичные объявления":"Полные объявления",true);
+  };
+
+  /* сброс — удержание 1,5 с */
+  (function(){
+    var b=$("resetBtn"), tmr=null, label="Сброс (удержать)";
+    function doReset(){
+      pushUndo(); stopMet(); stopMicro();
+      if("speechSynthesis" in window) window.speechSynthesis.cancel();
+      S.birth=S.ivl=S.cpr=S.adr=null; S.fired={}; S.cprBeats=0; beat=0; S.lastMin=-1;
+      S.hr=null; S.hrAt=null; S.ans=[null,null,null];
+      $("qModal").classList.remove("show"); $("banner").style.display="none";
+      syncUI(); save(); say("Сброс",true);
+    }
+    function down(e){ e.preventDefault(); b.textContent="Держите…";
+      tmr=setTimeout(function(){ b.textContent=label; doReset(); },1500); }
+    function up(){ if(tmr){clearTimeout(tmr);tmr=null;} b.textContent=label; }
+    b.addEventListener("pointerdown",down);
+    b.addEventListener("pointerup",up); b.addEventListener("pointerleave",up);
+    b.addEventListener("pointercancel",up);
+  })();
+
+  /* итоги и вкладыш-карта */
+  function firstLog(re){ for(var i=0;i<S.log.length;i++){ if(re.test(S.log[i].text)) return S.log[i]; } return null; }
+  function countLog(re){ var n=0; for(var i=0;i<S.log.length;i++){ if(re.test(S.log[i].text)) n++; } return n; }
+  function summary(){
+    var out=[];
+    var ivl=firstLog(/^Начало ИВЛ/), cpr=firstLog(/^Начало непрямого массажа/),
+        a1=firstLog(/^Адреналин/), stop=firstLog(/Прекращение реанимации/);
+    out.push(["Рождение", S.birth?new Date(S.birth).toLocaleTimeString("ru-RU"):"—"]);
+    out.push(["До начала ИВЛ", ivl?ivl.t:"—"]);
+    out.push(["До начала массажа", cpr?cpr.t:"—"]);
+    out.push(["До первого адреналина", a1?a1.t:"—"]);
+    out.push(["Введений адреналина", String(countLog(/^Адреналин/))]);
+    if(ivl){
+      var end = stop?stop.ts:Date.now();
+      out.push(["Длительность от начала ИВЛ", fmt(end-ivl.ts)]);
+    }
+    var ap=[]; for(var i=0;i<S.log.length;i++){ if(/^Апгар/.test(S.log[i].text)) ap.push(S.log[i].text.replace("Апгар ","")); }
+    out.push(["Апгар", ap.length?ap.join("; "):"—"]);
+    out.push(["Последняя ЧСС", S.hr?S.hr+"/мин":"—"]);
+    out.push(["Записей в журнале", String(S.log.length)]);
+    return out;
+  }
+  function openSum(){
+    var ul=$("sumList"); ul.innerHTML="";
+    summary().forEach(function(r){
+      var li=document.createElement("li");
+      var a=document.createElement("span"); a.textContent=r[0];
+      var b=document.createElement("b"); b.textContent=r[1];
+      li.appendChild(a); li.appendChild(b); ul.appendChild(li);
+    });
+    $("fFio").value=S.meta.fio; $("fWaters").value=S.meta.waters; $("fOutcome").value=S.meta.outcome;
+    $("sumModal").classList.add("show");
+  }
+  function grabMeta(){
+    S.meta={fio:$("fFio").value,waters:$("fWaters").value,outcome:$("fOutcome").value}; save();
+  }
+  $("sumBtn").onclick=function(){ ac(); openSum(); };
+  $("sumClose").onclick=function(){ grabMeta(); $("sumModal").classList.remove("show"); };
+  $("printBtn").onclick=function(){
+    grabMeta();
+    var esc=function(t){ return String(t).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); };
+    var d=S.birth?new Date(S.birth):null;
+    var h='<h1>Вкладыш-карта реанимации и стабилизации состояния новорожденного в родильном зале</h1>';
+    h+='<p>ФИО родильницы: <span class="fill">'+esc(S.meta.fio||"")+'</span>&nbsp;&nbsp;Дата родов: '+
+       (d?d.toLocaleDateString("ru-RU")+" &nbsp; "+d.toLocaleTimeString("ru-RU"):'<span class="fill"></span>')+'</p>';
+    h+='<p>Характер амниотических вод: '+esc(S.meta.waters||"____________")+'</p>';
+    h+='<table><tr><th style="width:28mm">Показатель</th><th>Значение</th></tr>';
+    summary().forEach(function(r){ h+='<tr><td>'+esc(r[0])+'</td><td>'+esc(r[1])+'</td></tr>'; });
+    h+='</table>';
+    h+='<table><tr><th style="width:22mm">От рождения</th><th>Мероприятие</th></tr>';
+    S.log.forEach(function(l){ h+='<tr><td>'+esc(l.t)+'</td><td>'+esc(l.text)+'</td></tr>'; });
+    h+='</table>';
+    h+='<p><b>Исход:</b> '+esc(S.meta.outcome||"")+'</p>';
+    h+='<p style="margin-top:8mm">Параметры респираторной терапии, SpO₂ и температура вносятся от руки в форму Приложения № 3 методического письма № 15-4/И/2-2570 от 04.03.2020.</p>';
+    h+='<p style="margin-top:10mm">Дата: <span class="fill" style="min-width:35mm"></span> &nbsp;&nbsp; Подпись: <span class="fill" style="min-width:45mm"></span></p>';
+    $("printArea").innerHTML=h;
+    window.print();
+  };
+
+  /* восстановление сессии */
+  (function(){
+    var raw=null; try{ raw=localStorage.getItem(KEY); }catch(e){}
+    if(!raw) return;
+    var o; try{ o=JSON.parse(raw); }catch(e){ return; }
+    if(!o||!o.at||Date.now()-o.at>6*3600*1000) return;
+    var d; try{ d=JSON.parse(o.data); }catch(e){ return; }
+    if(d.birth==null && (!d.log||!d.log.length)) return;
+    applySnap(o.data);
+    var b=$("banner"); b.className=""; b.innerHTML="";
+    var sp=document.createElement("span");
+    sp.textContent="Восстановлена сессия от "+new Date(o.at).toLocaleTimeString("ru-RU")+
+      ". Для новой — удерживайте «Сброс».";
+    b.appendChild(sp);
+    var x=document.createElement("button"); x.textContent="Ок";
+    x.onclick=function(){ b.style.display="none"; }; b.appendChild(x);
+    b.style.display="block";
+    setTimeout(function(){ b.style.display="none"; },20000);
+  })();
+  setInterval(save,5000);
+  document.addEventListener("visibilitychange",function(){ if(document.visibilityState!=="visible") save(); });
+  window.addEventListener("pagehide",save);
   $("copyLog").onclick=function(){
     var b=this;
     if(!S.log.length){ b.textContent="Журнал пуст"; setTimeout(function(){b.textContent="Скопировать";},1500); return; }
